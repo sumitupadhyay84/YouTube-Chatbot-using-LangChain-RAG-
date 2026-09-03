@@ -1,0 +1,644 @@
+import os
+os.environ["OPENAI_API_KEY"] = "sk-proj-ORV1HwUGs8R8vWlaRYLdAzJfhxLH9NYWyb5GDGGm9Il4JLsPWQX5L1I8A9hR_Cbs1a0JWaPCtUdqvv5LRedP2mIWl8A"
+
+Install libraries
+
+!pip install -q youtube-transcript-api langchain-community langchain-openai \
+               faiss-cpu tiktoken python-dotenv
+
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 485.0/485.0 kB 13.4 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.5/2.5 MB 64.0 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 74.3/74.3 kB 4.8 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 31.3/31.3 MB 45.9 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 443.5/443.5 kB 28.0 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45.2/45.2 kB 2.8 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.9/50.9 kB 3.5 MB/s eta 0:00:00
+
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import FAISS
+from langchain_core.prompts import PromptTemplate
+
+Step 1a - Indexing (Document Ingestion)
+
+video_id = "Gfr50f6ZBvo" # only the ID, not full URL
+try:
+    # If you don’t care which language, this returns the “best” one
+    transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
+
+    # Flatten it to plain text
+    transcript = " ".join(chunk["text"] for chunk in transcript_list)
+    print(transcript)
+
+except TranscriptsDisabled:
+    print("No captions available for this video.")
+
+[{'text': 'Imagine you happen across a short movie script that',
+  'start': 1.14,
+  'duration': 2.836},
+ {'text': 'describes a scene between a person and their AI assistant.',
+  'start': 3.976,
+  'duration': 3.164},
+ {'text': "The script has what the person asks the AI, but the AI's response has been torn off.",
+  'start': 7.48,
+  'duration': 5.58},
+ {'text': 'Suppose you also have this powerful magical machine that can take',
+  'start': 13.06,
+  'duration': 3.92},
+ {'text': 'any text and provide a sensible prediction of what word comes next.',
+  'start': 16.98,
+  'duration': 3.98},
+ {'text': 'You could then finish the script by feeding in what you have to the machine,',
+  'start': 21.5,
+  'duration': 4.006},
+ {'text': "seeing what it would predict to start the AI's answer,",
+  'start': 25.506,
+  'duration': 2.862},
+ {'text': 'and then repeating this over and over with a growing script completing the dialogue.',
+  'start': 28.368,
+  'duration': 4.372},
+ {'text': "When you interact with a chatbot, this is exactly what's happening.",
+  'start': 33.38,
+  'duration': 3.1},
+ {'text': 'A large language model is a sophisticated mathematical function',
+  'start': 37.02,
+  'duration': 3.681},
+ {'text': 'that predicts what word comes next for any piece of text.',
+  'start': 40.701,
+  'duration': 3.279},
+ {'text': 'Instead of predicting one word with certainty, though,',
+  'start': 44.38,
+  'duration': 3.022},
+ {'text': 'what it does is assign a probability to all possible next words.',
+  'start': 47.402,
+  'duration': 3.518},
+ {'text': 'To build a chatbot, you lay out some text that describes an interaction between a user',
+  'start': 51.62,
+  'duration': 5.18},
+ {'text': 'and a hypothetical AI assistant, add on whatever the user types in as the first part of',
+  'start': 56.8,
+  'duration': 5.24},
+ {'text': 'the interaction, and then have the model repeatedly predict the next word that such a',
+  'start': 62.04,
+  'duration': 5.12},
+ {'text': "hypothetical AI assistant would say in response, and that's what's presented to the user.",
+  'start': 67.16,
+  'duration': 5.3},
+ {'text': 'In doing this, the output tends to look a lot more natural if',
+  'start': 73.08,
+  'duration': 3.134},
+ {'text': 'you allow it to select less likely words along the way at random.',
+  'start': 76.214,
+  'duration': 3.286},
+ {'text': 'So what this means is even though the model itself is deterministic,',
+  'start': 80.14,
+  'duration': 3.48},
+ {'text': "a given prompt typically gives a different answer each time it's run.",
+  'start': 83.62,
+  'duration': 3.48},
+ {'text': 'Models learn how to make these predictions by processing an enormous amount of text,',
+  'start': 88.04,
+  'duration': 4.292},
+ {'text': 'typically pulled from the internet.',
+  'start': 92.332,
+  'duration': 1.768},
+ {'text': 'For a standard human to read the amount of text that was used to train GPT-3,',
+  'start': 94.1,
+  'duration': 5.371},
+ {'text': 'for example, if they read non-stop 24-7, it would take over 2600 years.',
+  'start': 99.471,
+  'duration': 4.889},
+ {'text': 'Larger models since then train on much, much more.',
+  'start': 104.72,
+  'duration': 2.62},
+ {'text': 'You can think of training a little bit like tuning the dials on a big machine.',
+  'start': 108.2,
+  'duration': 3.58},
+ {'text': 'The way that a language model behaves is entirely determined by these',
+  'start': 112.28,
+  'duration': 4.021},
+ {'text': 'many different continuous values, usually called parameters or weights.',
+  'start': 116.301,
+  'duration': 4.079},
+ {'text': 'Changing those parameters will change the probabilities',
+  'start': 121.02,
+  'duration': 3.079},
+ {'text': 'that the model gives for the next word on a given input.',
+  'start': 124.099,
+  'duration': 3.081},
+ {'text': 'What puts the large in large language model is how',
+  'start': 127.86,
+  'duration': 2.867},
+ {'text': 'they can have hundreds of billions of these parameters.',
+  'start': 130.727,
+  'duration': 3.093},
+ {'text': 'No human ever deliberately sets those parameters.',
+  'start': 135.2,
+  'duration': 2.84},
+ {'text': 'Instead, they begin at random, meaning the model just outputs gibberish,',
+  'start': 138.44,
+  'duration': 4.203},
+ {'text': "but they're repeatedly refined based on many example pieces of text.",
+  'start': 142.643,
+  'duration': 3.917},
+ {'text': 'One of these training examples could be just a handful of words,',
+  'start': 147.14,
+  'duration': 3.516},
+ {'text': 'or it could be thousands, but in either case, the way this works is to',
+  'start': 150.656,
+  'duration': 3.84},
+ {'text': 'pass in all but the last word from that example into the model and',
+  'start': 154.496,
+  'duration': 3.624},
+ {'text': 'compare the prediction that it makes with the true last word from the example.',
+  'start': 158.12,
+  'duration': 4.22},
+ {'text': 'An algorithm called backpropagation is used to tweak all of the parameters',
+  'start': 163.26,
+  'duration': 4.133},
+ {'text': 'in such a way that it makes the model a little more likely to choose',
+  'start': 167.393,
+  'duration': 3.803},
+ {'text': 'the true last word and a little less likely to choose all the others.',
+  'start': 171.196,
+  'duration': 3.804},
+ {'text': 'When you do this for many, many trillions of examples,',
+  'start': 175.74,
+  'duration': 3.01},
+ {'text': 'not only does the model start to give more accurate predictions on the training data,',
+  'start': 178.75,
+  'duration': 4.708},
+ {'text': "but it also starts to make more reasonable predictions on text that it's never",
+  'start': 183.458,
+  'duration': 4.325},
+ {'text': 'seen before.', 'start': 187.783, 'duration': 0.657},
+ {'text': 'Given the huge number of parameters and the enormous amount of training data,',
+  'start': 189.42,
+  'duration': 4.499},
+ {'text': 'the scale of computation involved in training a large language model is mind-boggling.',
+  'start': 193.919,
+  'duration': 4.961},
+ {'text': 'To illustrate, imagine that you could perform one',
+  'start': 199.6,
+  'duration': 2.685},
+ {'text': 'billion additions and multiplications every single second.',
+  'start': 202.285,
+  'duration': 3.115},
+ {'text': 'How long do you think it would take for you to do all of the',
+  'start': 206.06,
+  'duration': 3.266},
+ {'text': 'operations involved in training the largest language models?',
+  'start': 209.326,
+  'duration': 3.214},
+ {'text': 'Do you think it would take a year?',
+  'start': 213.46,
+  'duration': 1.579},
+ {'text': 'Maybe something like 10,000 years?',
+  'start': 216.039,
+  'duration': 1.921},
+ {'text': 'The answer is actually much more than that.',
+  'start': 219.02,
+  'duration': 1.78},
+ {'text': "It's well over 100 million years.",
+  'start': 221.12,
+  'duration': 2.78},
+ {'text': 'This is only part of the story, though.',
+  'start': 225.52,
+  'duration': 1.84},
+ {'text': 'This whole process is called pre-training.',
+  'start': 227.54,
+  'duration': 1.68},
+ {'text': 'The goal of auto-completing a random passage of text from the',
+  'start': 229.5,
+  'duration': 3.146},
+ {'text': 'internet is very different from the goal of being a good AI assistant.',
+  'start': 232.646,
+  'duration': 3.554},
+ {'text': 'To address this, chatbots undergo another type of training,',
+  'start': 236.88,
+  'duration': 3.2},
+ {'text': 'just as important, called reinforcement learning with human feedback.',
+  'start': 240.08,
+  'duration': 3.68},
+ {'text': 'Workers flag unhelpful or problematic predictions,',
+  'start': 244.48,
+  'duration': 3.018},
+ {'text': "and their corrections further change the model's parameters,",
+  'start': 247.498,
+  'duration': 3.611},
+ {'text': 'making them more likely to give predictions that users prefer.',
+  'start': 251.109,
+  'duration': 3.671},
+ {'text': 'Looking back at the pre-training, though, this staggering amount of',
+  'start': 254.78,
+  'duration': 4.08},
+ {'text': 'computation is only made possible by using special computer chips that',
+  'start': 258.86,
+  'duration': 4.26},
+ {'text': 'are optimized for running many operations in parallel, known as GPUs.',
+  'start': 263.12,
+  'duration': 4.14},
+ {'text': 'However, not all language models can be easily parallelized.',
+  'start': 268.12,
+  'duration': 3.5},
+ {'text': 'Prior to 2017, most language models would process text one word at a time,',
+  'start': 272.08,
+  'duration': 4.737},
+ {'text': 'but then a team of researchers at Google introduced a new model known as the transformer.',
+  'start': 276.817,
+  'duration': 5.623},
+ {'text': "Transformers don't read text from the start to the finish,",
+  'start': 283.3,
+  'duration': 3.445},
+ {'text': 'they soak it all in at once, in parallel.',
+  'start': 286.745,
+  'duration': 2.395},
+ {'text': 'The very first step inside a transformer, and most other language models for that matter,',
+  'start': 289.9,
+  'duration': 4.7},
+ {'text': 'is to associate each word with a long list of numbers.',
+  'start': 294.6,
+  'duration': 2.82},
+ {'text': 'The reason for this is that the training process only works with continuous values,',
+  'start': 297.86,
+  'duration': 4.536},
+ {'text': 'so you have to somehow encode language using numbers,',
+  'start': 302.396,
+  'duration': 2.916},
+ {'text': 'and each of these lists of numbers may somehow encode the meaning of the',
+  'start': 305.312,
+  'duration': 3.942},
+ {'text': 'corresponding word.', 'start': 309.254, 'duration': 1.026},
+ {'text': 'What makes transformers unique is their reliance',
+  'start': 310.28,
+  'duration': 3.08},
+ {'text': 'on a special operation known as attention.',
+  'start': 313.36,
+  'duration': 2.64},
+ {'text': 'This operation gives all of these lists of numbers a chance to talk to one another',
+  'start': 316.98,
+  'duration': 4.704},
+ {'text': 'and refine the meanings they encode based on the context around, all done in parallel.',
+  'start': 321.684,
+  'duration': 4.876},
+ {'text': 'For example, the numbers encoding the word bank might be changed based on the',
+  'start': 327.4,
+  'duration': 4.307},
+ {'text': 'context surrounding it to somehow encode the more specific notion of a riverbank.',
+  'start': 331.707,
+  'duration': 4.473},
+ {'text': 'Transformers typically also include a second type of operation known',
+  'start': 337.28,
+  'duration': 3.749},
+ {'text': 'as a feed-forward neural network, and this gives the model extra',
+  'start': 341.029,
+  'duration': 3.532},
+ {'text': 'capacity to store more patterns about language learned during training.',
+  'start': 344.561,
+  'duration': 3.859},
+ {'text': 'All of this data repeatedly flows through many different iterations of',
+  'start': 349.28,
+  'duration': 4.121},
+ {'text': 'these two fundamental operations, and as it does so,',
+  'start': 353.401,
+  'duration': 3.077},
+ {'text': 'the hope is that each list of numbers is enriched to encode whatever',
+  'start': 356.478,
+  'duration': 4.006},
+ {'text': 'information might be needed to make an accurate prediction of what word',
+  'start': 360.484,
+  'duration': 4.18},
+ {'text': 'follows in the passage.', 'start': 364.664, 'duration': 1.336},
+ {'text': 'At the end, one final function is performed on the last vector in this sequence,',
+  'start': 367.0,
+  'duration': 4.534},
+ {'text': 'which now has had a chance to be influenced by all the other context from the input text,',
+  'start': 371.534,
+  'duration': 5.039},
+ {'text': 'as well as everything the model learned during training,',
+  'start': 376.573,
+  'duration': 3.191},
+ {'text': 'to produce a prediction of the next word.',
+  'start': 379.764,
+  'duration': 2.296},
+ {'text': "Again, the model's prediction looks like a probability for every possible next word.",
+  'start': 382.48,
+  'duration': 4.88},
+ {'text': 'Although researchers design the framework for how each of these steps work,',
+  'start': 388.56,
+  'duration': 4.234},
+ {'text': "it's important to understand that the specific behavior is an emergent phenomenon",
+  'start': 392.794,
+  'duration': 4.568},
+ {'text': 'based on how those hundreds of billions of parameters are tuned during training.',
+  'start': 397.362,
+  'duration': 4.458},
+ {'text': 'This makes it incredibly challenging to determine',
+  'start': 402.48,
+  'duration': 2.59},
+ {'text': 'why the model makes the exact predictions that it does.',
+  'start': 405.07,
+  'duration': 2.85},
+ {'text': 'What you can see is that when you use large language model predictions to autocomplete',
+  'start': 408.44,
+  'duration': 5.338},
+ {'text': 'a prompt, the words that it generates are uncannily fluent, fascinating, and even useful.',
+  'start': 413.778,
+  'duration': 5.462},
+ {'text': "If you're a new viewer and you're curious about more details on how",
+  'start': 425.719,
+  'duration': 3.107},
+ {'text': 'transformers and attention work, boy do I have some material for you.',
+  'start': 428.826,
+  'duration': 3.153},
+ {'text': 'One option is to jump into a series I made about deep learning,',
+  'start': 432.399,
+  'duration': 3.681},
+ {'text': 'where we visualize and motivate the details of attention and all the other steps',
+  'start': 436.08,
+  'duration': 4.66},
+ {'text': 'in a transformer.', 'start': 440.74, 'duration': 0.979},
+ {'text': 'Also, on my second channel I just posted a talk I gave a couple',
+  'start': 442.099,
+  'duration': 3.43},
+ {'text': 'months ago about this topic for the company TNG in Munich.',
+  'start': 445.529,
+  'duration': 3.11},
+ {'text': 'Sometimes I actually prefer the content I make as a casual talk rather than a produced',
+  'start': 449.079,
+  'duration': 4.022},
+ {'text': 'video, but I leave it up to you which one of these feels like the better follow-on.',
+  'start': 453.101,
+  'duration': 3.838}]
+
+Step 1b - Indexing (Text Splitting)
+
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+chunks = splitter.create_documents([transcript])
+
+len(chunks)
+168
+
+Document(metadata={}, page_content="and and kind of come up with descriptions of the electron clouds where they're gonna go how they're gonna interact when you put two elements together uh and what we try to do is learn a simulation uh uh learner functional that will describe more chemistry types of chemistry so um until now you know you can run expensive simulations but then you can only simulate very small uh molecules very simple molecules we would like to simulate large materials um and so uh today there's no way of doing that and we're building up towards uh building functionals that approximate schrodinger's equation and then allow you to describe uh what the electrons are doing and all materials sort of science and material properties are governed by the electrons and and how they interact so have a good summarization of the simulation through the functional um but one that is still close to what the actual simulation would come out with so what um how difficult is that to ask what's involved in that task is it")
+
+Step 1c & 1d - Indexing (Embedding Generation and Storing in Vector Store)
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+vector_store = FAISS.from_documents(chunks, embeddings)
+
+{0: '7c0f7504-08fa-4f33-8708-d29bfc601f84',
+ 1: '06b75197-142c-4ac0-88c8-1bf9e865763b',
+ 2: '6ff986db-4118-4212-a5fe-39f0cf922677',
+ 3: '447cb65c-cfa2-43aa-ad48-2321366e5762',
+ 4: '30f35db0-6d97-4a6f-b246-27c4cbcb6d13',
+ 5: '3fd10381-afd7-427e-958e-89fc520dc260',
+ 6: '40da6068-0065-4411-9417-11f839de969c',
+ 7: '733cdcc4-7685-40a2-9164-413b8fc4366d',
+ 8: '03adb4d2-e52b-4efd-911d-f7ae4caa4eaa',
+ 9: 'e6997d55-f5b1-4785-bc63-613d57306c68',
+ 10: 'ec55a375-5d7c-46b5-9d0c-73e8f8810712',
+ 11: '2b8a87c8-01a6-4390-a751-543668f921d9',
+ 12: '4a0fa4f7-0abd-4e05-9154-2d90d7f42c9e',
+ 13: 'f36acaa7-947f-4120-8094-5a0a3521ad9a',
+ 14: '87dc4c33-6bcd-4b55-b2ca-1e1d2e30e374',
+ 15: 'bfbfd51c-e879-4c43-8d0f-97cdea1ecf7d',
+ 16: '237bef6d-bc86-49b6-86a3-f300c6cd96de',
+ 17: '62de1f42-4306-40c4-aa52-ab93a2d43754',
+ 18: '22ac2726-8b22-48b7-a457-c9b81799f2a7',
+ 19: '92d2f60c-80d5-4c12-ad2b-cb30a98851e8',
+ 20: '23b0db0d-da2e-4ab9-84db-0ae8c5d15a42',
+ 21: '08bc0031-2f11-468c-a1dd-54449e12db06',
+ 22: 'eb3b8f90-9ee9-44a8-8aee-c5cb784c7eb3',
+ 23: 'c7f6986a-189a-4444-a900-e1e568caee9c',
+ 24: 'e3d7ab3b-7b60-4de0-8a1e-3b8394003fee',
+ 25: '823ab093-dd84-40ba-9c4e-ddab818085b8',
+ 26: 'b4fb574d-9bc3-4c94-9df0-5212275fbb2d',
+ 27: '812a72a5-fdbd-4867-a877-18e807a8d774',
+ 28: '2bcda52b-0e25-4798-bf2a-c8229d70ec57',
+ 29: '4cd08b34-05ce-4f79-b0da-667f71f44936',
+ 30: '57ab4815-bd42-4664-8976-dd4fc53e770d',
+ 31: 'fff29621-f307-44ea-8e14-34d276c124cd',
+ 32: '656a4467-530b-4137-9e60-5a409aa62345',
+ 33: '7da6c567-238a-400b-8ce7-91ee4ef9ccd3',
+ 34: '8234c825-74a1-45ee-a683-b264eb11c29b',
+ 35: '0d860b3c-c53c-451a-b761-b782785cbab4',
+ 36: '19fdaa54-8c4d-4fd4-8b1c-55ab1f3b1fc1',
+ 37: 'd720c8cf-c224-4c15-b494-116bd5d30424',
+ 38: '56ede6f0-d62d-4a42-9b13-d847cf46532e',
+ 39: 'acf86bb1-83b1-4efc-89ef-b0530fc50c18',
+ 40: 'e0ba422e-a794-4ef2-aa51-a75d66e9d9db',
+ 41: '5f46e4dd-022c-40d8-b73c-0901e428b13c',
+ 42: '374e910b-041c-4006-b94b-1a37194ad549',
+ 43: '6b5bc2fc-eb43-428e-8ecb-7874352e1b42',
+ 44: '1add167b-2504-4d51-8974-d0b7644f8c76',
+ 45: '163d291f-437c-4280-af18-7484737e1648',
+ 46: '45bf20b3-7e51-4978-8efa-ad7e4a4b866a',
+ 47: 'ee411984-e0bc-443f-992e-bc5cf3111f3d',
+ 48: '18b51f36-3fff-4b7f-a507-1c9ce1a8982d',
+ 49: 'e0eb5bd3-a9bb-4ceb-97df-85c9dabb5a53',
+ 50: '4c55b502-fce1-4360-8076-42a5db26107a',
+ 51: '5c768812-1807-4678-bdd8-81d1582e2e8c',
+ 52: 'fbd6fcc0-7b6f-4d3c-af02-b2e5ffccbd37',
+ 53: '23807eb3-ed23-4029-bd8d-0db40db80c5d',
+ 54: '9bacf012-cc41-4136-82ed-29a5d4a539a4',
+ 55: 'a3c14979-7346-4d9f-bc39-b8194e4582de',
+ 56: 'ce310fcb-b6f2-4f03-8054-eeafdf2a2bf1',
+ 57: 'a9d46f8a-f7da-4bd0-898c-a13e5439b556',
+ 58: 'fb5e7e98-0bd0-4049-ad0e-a38fb835c2b9',
+ 59: '6fc1a125-73f1-4560-8b0a-e5ba6fd9d403',
+ 60: 'cf11b0a4-d350-4368-bc85-bcf92e275e5c',
+ 61: '3c57fe3f-4c89-48b6-979f-fbca4afdd1d3',
+ 62: '3a6e36df-cf23-4ffe-9d12-49c6b05dc5a2',
+ 63: '07799ca1-a873-4a15-8886-b6fb19d93421',
+ 64: '4b68456d-1e53-4e86-86b2-a8a131a11cb0',
+ 65: 'a29fe24c-d162-41b8-b057-dcf0dc7b987b',
+ 66: '066d9da7-cf6d-4a0c-af6e-5457d9a0675f',
+ 67: '431072f6-d213-4757-98f9-5e4b76b4bec4',
+ 68: '5404b92d-be79-44b1-bf76-bb347bb9dac9',
+ 69: 'ddff1076-f241-45ca-bab9-3e03b1a812e5',
+ 70: '934adbd6-6408-45da-abc5-ebba1785562b',
+ 71: '0ddf7e65-906a-4871-8a0d-f277750dc64c',
+ 72: 'd1e52fd8-c3ae-429b-beab-bcd2e4d26e8b',
+ 73: '20059f0a-9666-45c0-a7b3-2fda7d3b490e',
+ 74: '88610b3f-60af-46c4-9d5b-b76ad086c195',
+ 75: '72b7958a-f509-4348-b49d-ce3ce436afba',
+ 76: 'a3d1ff48-f964-4a66-8b67-d798004f9b54',
+ 77: '24535063-4e37-4196-b8a7-1bdde5382cc6',
+ 78: '798e39ba-4075-4279-904a-d1fc5391bdb1',
+ 79: '81c22ad4-0553-471f-8f02-e4c99c595ec9',
+ 80: '4c2bd757-2bbb-4c72-93f6-b3ea60eb4f91',
+ 81: '46758929-139f-400f-adef-9610f24674a5',
+ 82: '5de22cf4-16d2-4081-a481-709ec357853d',
+ 83: '55806ba1-fbcb-4990-8624-741288e481c7',
+ 84: 'b7e9e8b6-62e5-4ff4-98e0-f64405835a8e',
+ 85: '6f5a3e09-505d-4d93-8385-3b5b5b5934a0',
+ 86: '927c1070-b0e5-412a-acc7-e0228579cfcc',
+ 87: 'dea4fd63-732b-4f24-9d4a-9ce4e91fa641',
+ 88: '99d8bfff-70c8-447d-bbb4-aa02cfbf29f9',
+ 89: '3eb4d7b9-7e8e-47b6-aff4-be9e272b1937',
+ 90: 'b3d00b0f-a8ef-4dc6-aae5-a538ca3355af',
+ 91: 'ba549b8b-25db-4854-b8b8-41952da6fddb',
+ 92: '14f4851b-7f23-46fc-a961-f82640283e5d',
+ 93: 'b2ae8f4e-d4bc-4c3c-a7e0-0f13fbfc2919',
+ 94: 'a1dc5bd4-b901-4d17-b77e-f573d2d20f86',
+ 95: 'fd83b803-2da9-433d-ac21-8961e541214e',
+ 96: '17202855-855f-4792-86c9-c16f8d99648d',
+ 97: '66794e6a-73e9-4d19-b28e-adafa60ae70b',
+ 98: '3c60d0d6-5d01-4dfc-99fc-5c4bb4422cb0',
+ 99: '46a885b0-6a22-49a7-88a2-1582b71eca30',
+ 100: '27b32505-e6ef-4995-9133-9f0eea4f7756',
+ 101: 'e18f33d7-e7a7-4ddb-8591-4e5c7c1d372c',
+ 102: 'a2d388ed-5b21-42b8-a1d2-a1fdf505b9c6',
+ 103: 'a847078b-7f8f-4132-b035-f7c640309c99',
+ 104: '2585c5b6-31ae-4f25-b934-5e7cc42f68bd',
+ 105: 'c0c4a613-b5df-4e18-bb09-a4efd45d5184',
+ 106: '22bf50e1-0946-4ef8-8d5a-0b704d1b7ed6',
+ 107: '90f7e684-e591-4a13-b3bc-5ac1abfc57df',
+ 108: 'e23879ad-4d5d-4418-a8c4-ee57064ab884',
+ 109: '8eddc30e-ff7a-4419-9e07-d055eb056f73',
+ 110: '93c2f66e-1dbc-4e8a-922a-168e8b952852',
+ 111: '61f745b3-6b56-4e5f-8db0-18a8fb7846ee',
+ 112: 'e862f216-444b-4ef3-ae50-2c8bc2480998',
+ 113: '20d73cc0-c41a-4cfe-8235-04f1aad627e5',
+ 114: 'f2f48f74-9482-4128-8dba-d44a057bd2c0',
+ 115: '87dac438-291e-4aa9-ad65-d2dbf3f01297',
+ 116: 'f4b1a30f-ae12-4dcc-9874-9ea203740af2',
+ 117: '0d6e549f-50fe-4d15-bd37-f9475fbafc65',
+ 118: '3f7e1cc1-c2f4-4535-ac49-959571c91f20',
+ 119: '49aabcb4-b26f-49f4-84df-c9837998d954',
+ 120: 'a2371319-6f39-470e-adaf-104ecbe3d7f1',
+ 121: '03f1d880-48f1-43d6-b776-0f15d56f99fa',
+ 122: 'bf7b60c6-bbc6-4d80-a32a-f996025b075b',
+ 123: '5bf9a83d-d4d2-4dd6-ba80-0956d8847b0a',
+ 124: '22748507-a220-4065-b569-5a4fe90e7367',
+ 125: 'c08ae5d4-16c0-4099-8d46-e88899769460',
+ 126: '957cc44d-376f-4f5b-8b57-f2cca92d355c',
+ 127: '7ed9015a-7e17-4c46-bf65-d4560d7031d1',
+ 128: '6b0cd719-8f14-42a0-88fe-467b7c6ba694',
+ 129: '4d4d6af4-0023-42d3-9c1e-0663e32847dc',
+ 130: '1fe7ff26-91f1-4e4c-94df-4a3aa4d3cfce',
+ 131: 'cba11826-b8ae-4258-87e8-6ad9f3761680',
+ 132: '2f2617cd-53b0-4619-ba58-d09300a8889c',
+ 133: '72bc0f75-acc7-4e51-9bd9-2bf7dc51ac73',
+ 134: 'fd0ddd22-a60b-455c-ab78-17775c2dc841',
+ 135: 'aea872f1-ec68-4b11-b091-a604292dbe23',
+ 136: 'c49b75f3-3978-4692-9c44-f3e8a3800bfc',
+ 137: '40aaa374-3d8e-4ef5-9277-1aa673740db7',
+ 138: '92979d26-044c-4454-baaa-ff4ad016703d',
+ 139: 'aa7d5183-fbc3-4112-8fa7-5379f20eb288',
+ 140: 'a714c2eb-4318-444a-a1ed-0096bb018e6a',
+ 141: '59a18bbe-b7c4-4fe9-a1e3-bd123b0e3294',
+ 142: '8c458c0d-113e-4816-99a2-1e31ff26804d',
+ 143: '8e0c045f-4db0-46d7-a95f-daaad108bed0',
+ 144: '3dd998c8-c503-4f44-af5c-9123b6eded0e',
+ 145: '591d8d55-8d0c-4176-a8b0-d12cca88c515',
+ 146: '3f2c5c9e-2fc8-4d7a-8516-9c541b19f58c',
+ 147: '727aed50-04c4-4204-b778-182b15014c8a',
+ 148: '8d688ab9-5c84-4aaa-bc9a-70def267332e',
+ 149: 'e0aee3bf-32a2-4d82-a6b5-687fcb89b897',
+ 150: 'a689d18d-de55-420c-91e1-1720142606c9',
+ 151: 'a6a3fbc6-2087-41df-9853-e6a2ce7d8318',
+ 152: '773efd96-3129-495b-b8ce-453744e2e6bf',
+ 153: '81a018fe-f692-4cdf-ab6b-593961becd3f',
+ 154: '5b681d5e-9e38-4ce4-9fb3-c23fdcedce48',
+ 155: '80a35423-cc8a-4a56-a5a7-fc211c758fa6',
+ 156: 'ab1f6a95-ff8c-4aa8-9046-8e4de91a84c7',
+ 157: 'c0e69797-0677-44fb-9576-5c624b6036fc',
+ 158: '7d14b9ff-7ab2-42eb-b259-aaa839f74181',
+ 159: '306f52e0-b933-458a-b4e5-3e953f4eb30b',
+ 160: '8f8614f3-4d90-4244-8728-79e1eb02e86e',
+ 161: '8452e7ca-6211-4d27-9b21-c23d17396311',
+ 162: '8420569e-0351-488d-af65-1f8445315f2c',
+ 163: '5a65ec2b-b76f-43cb-9a75-48684ece1561',
+ 164: '66d04fbf-e4b5-4d0f-ae94-f40d07c4ca66',
+ 165: '31dca5d1-666b-4aab-af3d-540d1c4f093d',
+ 166: 'ea5a8f69-dd04-408e-8351-d00b299cda65',
+ 167: '2436bdb8-3f5f-49c6-8915-0c654c888700'}
+
+vector_store.get_by_ids(['2436bdb8-3f5f-49c6-8915-0c654c888700'])
+
+[Document(id='2436bdb8-3f5f-49c6-8915-0c654c888700', metadata={}, page_content='demas establish to support this podcast please check out our sponsors in the description and now let me leave you with some words from edskar dykstra computer science is no more about computers than astronomy is about telescopes thank you for listening and hope to see you next time')]
+
+Step 2 - Retrieval
+
+retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+
+retriever(self runnable)
+VectorStoreRetriever(tags=['FAISS', 'OpenAIEmbeddings'], vectorstore=<langchain_community.vectorstores.faiss.FAISS object at 0x7fdba029d2d0>, search_kwargs={'k': 4})
+
+retriever.invoke('What is deepmind')
+[Document(id='7c0f7504-08fa-4f33-8708-d29bfc601f84', metadata={}, page_content="the following is a conversation with demus hasabis ceo and co-founder of deepmind a company that has published and builds some of the most incredible artificial intelligence systems in the history of computing including alfred zero that learned all by itself to play the game of gold better than any human in the world and alpha fold two that solved protein folding both tasks considered nearly impossible for a very long time demus is widely considered to be one of the most brilliant and impactful humans in the history of artificial intelligence and science and engineering in general this was truly an honor and a pleasure for me to finally sit down with him for this conversation and i'm sure we will talk many times again in the future this is the lex friedman podcast to support it please check out our sponsors in the description and now dear friends here's demis hassabis let's start with a bit of a personal question am i an ai program you wrote to interview people until i get good enough"),
+ Document(id='431072f6-d213-4757-98f9-5e4b76b4bec4', metadata={}, page_content='i used to discuss um uh uh what were the sort of founding tenets of deep mind and it was very various things one was um algorithmic advances so deep learning you know jeff hinton and cohen just had just sort of invented that in academia but no one in industry knew about it uh we love reinforcement learning we thought that could be scaled up but also understanding about the human brain had advanced um quite a lot uh in the decade prior with fmri machines and other things so we could get some good hints about architectures and algorithms and and sort of um representations maybe that the brain uses so as at a systems level not at a implementation level um and then the other big things were compute and gpus right so we could see a compute was going to be really useful and it got to a place where it became commoditized mostly through the games industry and and that could be taken advantage of and then the final thing was also mathematical and theoretical definitions of intelligence so'),
+ Document(id='4b68456d-1e53-4e86-86b2-a8a131a11cb0', metadata={}, page_content="and how it works this is tough to uh ask you this question because you probably will say it's everything but let's let's try let's try to think to this because you're in a very interesting position where deepmind is the place of some of the most uh brilliant ideas in the history of ai but it's also a place of brilliant engineering so how much of solving intelligence this big goal for deepmind how much of it is science how much is engineering so how much is the algorithms how much is the data how much is the hardware compute infrastructure how much is it the software computer infrastructure yeah um what else is there how much is the human infrastructure and like just the humans interact in certain kinds of ways in all the space of all those ideas how much does maybe like philosophy how much what's the key if um uh if if you were to sort of look back like if we go forward 200 years look back what was the key thing that solved intelligence is that ideas i think it's a combination first"),
+ Document(id='20059f0a-9666-45c0-a7b3-2fda7d3b490e', metadata={}, page_content="ambitious as trying to solve intelligence and you're you're you know it's blue sky research no one knows how to do it you you you need to use any evidence or any source of information you can to help guide you in the right direction or give you confidence you're going in the right direction so so that that was one reason we pushed so hard on that and that's and just going back to your early question about organization the other big thing that i think we innovated with at deepmind to encourage invention and and uh and innovation was the multi-disciplinary organization we built and we still have today so deepmind originally was a confluence of the of the most cutting-edge knowledge in neuroscience with machine learning engineering and mathematics right and and gaming and then since then we built that out even further so we have philosophers here and and uh by you know ethicists but also other types of scientists physicists and so on um and that's what brings together i tried to build a")]
+
+Step 3 - Augmentation
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+
+prompt = PromptTemplate(
+    template="""
+      You are a helpful assistant.
+      Answer ONLY from the provided transcript context.
+      If the context is insufficient, just say you don't know.
+
+      {context}
+      Question: {question}
+    """,
+    input_variables = ['context', 'question']
+)
+
+question          = "is the topic of nuclear fusion discussed in this video? if yes then what was discussed"
+retrieved_docs    = retriever.invoke(question)
+
+[Document(id='3c60d0d6-5d01-4dfc-99fc-5c4bb4422cb0', metadata={}, page_content="so we with this problem and we published it in a nature paper last year uh we held the fusion that we held the plasma in specific shapes so actually it's almost like carving the plasma into different shapes and control and hold it there for the record amount of time so um so that's one of the problems of of fusion sort of um solved so i have a controller that's able to no matter the shape uh contain it continue yeah contain it and hold it in structure and there's different shapes that are better for for the energy productions called droplets and and and so on so um so that was huge and now we're looking we're talking to lots of fusion startups to see what's the next problem we can tackle uh in the fusion area so another fascinating place in a paper title pushing the frontiers of density functionals by solving the fractional electron problem so you're taking on modeling and simulating the quantum mechanical behavior of electrons yes um can you explain this work and can ai model and"),
+ Document(id='fd83b803-2da9-433d-ac21-8961e541214e', metadata={}, page_content="in this case in fusion we we collaborated with epfl in switzerland the swiss technical institute who are amazing they have a test reactor that they were willing to let us use which you know i double checked with the team we were going to use carefully and safely i was impressed they managed to persuade them to let us use it and um and it's a it's an amazing test reactor they have there and they try all sorts of pretty crazy experiments on it and um the the the what we tend to look at is if we go into a new domain like fusion what are all the bottleneck problems uh like thinking from first principles you know what are all the bottleneck problems that are still stopping fusion working today and then we look at we you know we get a fusion expert to tell us and then we look at those bottlenecks and we look at the ones which ones are amenable to our ai methods today yes right and and and then and would be interesting from a research perspective from our point of view from an ai point of"),
+ Document(id='a1dc5bd4-b901-4d17-b77e-f573d2d20f86', metadata={}, page_content='that i would like to i think could be very transformative if we helped accelerate and uh really interesting problems scientific challenges in of themselves this is energy so energy yes exactly so energy and climate so we talked about disease and biology as being one of the biggest places i think ai can help with i think energy and climate uh is another one so maybe they would be my top two um and fusion is one one area i think ai can help with now fusion has many challenges mostly physics material science and engineering challenges as well to build these massive fusion reactors and contain the plasma and what we try to do whenever we go into a new field to apply our systems is we look for um we talk to domain experts we try and find the best people in the world to collaborate with um in this case in fusion we we collaborated with epfl in switzerland the swiss technical institute who are amazing they have a test reactor that they were willing to let us use which you know i double'),
+ Document(id='b2ae8f4e-d4bc-4c3c-a7e0-0f13fbfc2919', metadata={}, page_content="like room temperature superconductors or something on my list one day i'd like to like you know have an ai system to help build better optimized batteries all of these sort of mechanical things mr i think a systematic sort of search could be uh guided by a model could be um could be extremely powerful so speaking of which you have a paper on nuclear fusion uh magnetic control of tokamak plasmas to deep reinforcement learning so you uh you're seeking to solve nuclear fusion with deep rl so it's doing control of high temperature plasmas can you explain this work and uh can ai eventually solve nuclear fusion it's been very fun last year or two and very productive because we've been taking off a lot of my dream projects if you like of things that i've collected over the years of areas of science that i would like to i think could be very transformative if we helped accelerate and uh really interesting problems scientific challenges in of themselves this is energy so energy yes exactly so")]
+
+context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
+context_text
+
+so we with this problem and we published it in a nature paper last year uh we held the fusion that we held the plasma in specific shapes so actually it's almost like carving the plasma into different shapes and control and hold it there for the record amount of time so um so that's one of the problems of of fusion sort of um solved so i have a controller that's able to no matter the shape uh contain it continue yeah contain it and hold it in structure and there's different shapes that are better for for the energy productions called droplets and and and so on so um so that was huge and now we're looking we're talking to lots of fusion startups to see what's the next problem we can tackle uh in the fusion area so another fascinating place in a paper title pushing the frontiers of density functionals by solving the fractional electron problem so you're taking on modeling and simulating the quantum mechanical behavior of electrons yes um can you explain this work and can ai model and\n\ni
+
+final_prompt = prompt.invoke({"context": context_text, "question": question})
+StringPromptValue(text="\n      You are a helpful assistant.\n      Answer ONLY from the provided transcript context.\n      If the context is insufficient, just say you don't know.\n\n      so we with this problem and we published it in a nature paper last year uh we held the fusion that we held the plasma in specific shapes so actually it's almost like carving the plasma into different shapes and control and hold it there for the record amount of time so um so that's one of the problems of of fusion sort of um solved so i have a controller that's able to no matter the shape uh contain it continue yeah contain it and hold it in structure and there's different shapes that are better for for the energy productions called droplets and and and so on so um so that was huge and now we're looking we're talking to lots of fusion startups to see what's the next problem we can tackle uh in the fusion area so another fascinating place in a paper title pushing the frontiers of density functionals by solving the fractional electron problem so you're taking on modeling and simulating the quantum mechanical behavior of electrons yes um can you explain this work and can ai model and\n\nin this case in fusion we we collaborated with epfl in switzerland the swiss technical institute who are amazing they have a test reactor that they were willing to let us use which you know i double checked with the team we were going to use carefully and safely i was impressed they managed to persuade them to let us use it and um and it's a it's an amazing test reactor they have there and they try all sorts of pretty crazy experiments on it and um the the the what we tend to look at is if we go into a new domain like fusion what are all the bottleneck problems uh like thinking from first principles you know what are all the bottleneck problems that are still stopping fusion working today and then we look at we you know we get a fusion expert to tell us and then we look at those bottlenecks and we look at the ones which ones are amenable to our ai methods today yes right and and and then and would be interesting from a research perspective from our point of view from an ai point of\n\nthat i would like to i think could be very transformative if we helped accelerate and uh really interesting problems scientific challenges in of themselves this is energy so energy yes exactly so energy and climate so we talked about disease and biology as being one of the biggest places i think ai can help with i think energy and climate uh is another one so maybe they would be my top two um and fusion is one one area i think ai can help with now fusion has many challenges mostly physics material science and engineering challenges as well to build these massive fusion reactors and contain the plasma and what we try to do whenever we go into a new field to apply our systems is we look for um we talk to domain experts we try and find the best people in the world to collaborate with um in this case in fusion we we collaborated with epfl in switzerland the swiss technical institute who are amazing they have a test reactor that they were willing to let us use which you know i double\n\nlike room temperature superconductors or something on my list one day i'd like to like you know have an ai system to help build better optimized batteries all of these sort of mechanical things mr i think a systematic sort of search could be uh guided by a model could be um could be extremely powerful so speaking of which you have a paper on nuclear fusion uh magnetic control of tokamak plasmas to deep reinforcement learning so you uh you're seeking to solve nuclear fusion with deep rl so it's doing control of high temperature plasmas can you explain this work and uh can ai eventually solve nuclear fusion it's been very fun last year or two and very productive because we've been taking off a lot of my dream projects if you like of things that i've collected over the years of areas of science that i would like to i think could be very transformative if we helped accelerate and uh really interesting problems scientific challenges in of themselves this is energy so energy yes exactly so\n      Question: is the topic of nuclear fusion discussed in this video? if yes then what was discussed\n    ")
+
+Step 4 - Generation
+
+answer = llm.invoke(final_prompt)
+print(answer.content)
+
+Yes, the topic of nuclear fusion is discussed in the video. The discussion includes the following points:
+
+1. The speaker mentions a problem in fusion that was published in a Nature paper, where they developed a controller that can hold plasma in specific shapes for a record amount of time, which is crucial for energy production.
+
+2. They talk about collaborating with EPFL in Switzerland, which has a test reactor that they used for their experiments. The focus is on identifying bottleneck problems in fusion and applying AI methods to address those challenges.
+
+3. The speaker emphasizes the potential of AI to help accelerate solutions in energy and climate, specifically mentioning fusion as an area where AI can contribute.
+
+4. They also mention their work on magnetic control of tokamak plasmas using deep reinforcement learning, indicating that they are exploring how AI can assist in controlling high-temperature plasmas for nuclear fusion.
+
+Building a Chain(RAG Pipeline)
+
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
+from langchain_core.output_parsers import StrOutputParser
+
+def format_docs(retrieved_docs):
+  context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
+  return context_text
+
+parallel_chain = RunnableParallel({
+    'context': retriever | RunnableLambda(format_docs),
+    'question': RunnablePassthrough()
+})
+
+parallel_chain.invoke('who is Demis')
+{'context': "the following is a conversation with demus hasabis ceo and co-founder of deepmind a company that has published and builds some of the most incredible artificial intelligence systems in the history of computing including alfred zero that learned all by itself to play the game of gold better than any human in the world and alpha fold two that solved protein folding both tasks considered nearly impossible for a very long time demus is widely considered to be one of the most brilliant and impactful humans in the history of artificial intelligence and science and engineering in general this was truly an honor and a pleasure for me to finally sit down with him for this conversation and i'm sure we will talk many times again in the future this is the lex friedman podcast to support it please check out our sponsors in the description and now dear friends here's demis hassabis let's start with a bit of a personal question am i an ai program you wrote to interview people until i get good enough\n\ndeeper maybe simpler explanation yes of things right than the standard model of physics which we know doesn't work but we still keep adding to so um and and that's how i think the beginning of an explanation would look and it would start encompassing many of the mysteries that we have wondered about for thousands of years like you know consciousness uh life and gravity all of these things yeah giving us a glimpses of explanations for those things yeah well um damas dear one of the special human beings in this giant puzzle of ours and it's a huge honor that you would take a pause from the bigger puzzle to solve this small puzzle of a conversation with me today it's truly an honor and a pleasure thank you thank you i really enjoyed it thanks lex thanks for listening to this conversation with demas establish to support this podcast please check out our sponsors in the description and now let me leave you with some words from edskar dykstra computer science is no more about computers than\n\nout our sponsors in the description and now dear friends here's demis hassabis let's start with a bit of a personal question am i an ai program you wrote to interview people until i get good enough to interview you well i'll be impressed if if you were i'd be impressed by myself if you were i don't think we're quite up to that yet but uh maybe you're from the future lex if you did would you tell me is that is that a good thing to tell a language model that's tasked with interviewing that it is in fact um ai maybe we're in a kind of meta turing test uh probably probably it would be a good idea not to tell you so it doesn't change your behavior right this is a kind of heisenberg uncertainty principle situation if i told you you behave differently yeah maybe that's what's happening with us of course this is a benchmark from the future where they replay 2022 as a year before ais were good enough yet and now we want to see is it going to pass exactly if i was such a program would you be\n\ndemas establish to support this podcast please check out our sponsors in the description and now let me leave you with some words from edskar dykstra computer science is no more about computers than astronomy is about telescopes thank you for listening and hope to see you next time",
+ 'question': 'who is Demis'}
+
+parser = StrOutputParser()
+main_chain = parallel_chain | prompt | llm | parser
+main_chain.invoke('Can you summarize the video')
+The video features a conversation with Demas, who discusses the need for deeper and simpler explanations in physics, particularly in relation to consciousness, life, and gravity. He emphasizes the limitations of the current standard model of physics and the importance of exploring more fundamental explanations. Additionally, he talks about advancements in fusion research, specifically how they have managed to hold plasma in specific shapes for extended periods, which is a significant step in fusion energy production. The conversation touches on the potential of AI in modeling quantum mechanical behavior, particularly regarding electrons. The discussion concludes with a quote about the nature of computer science.
+
